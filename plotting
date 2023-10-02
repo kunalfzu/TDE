@@ -1,0 +1,184 @@
+import matplotlib.pyplot as plt
+import numpy as np
+from tqdm import tqdm
+# Imports and setup
+import matplotlib.pyplot as plt
+import numpy as np
+from tqdm import tqdm
+import time
+
+start_time = time.time()
+
+# Constructing file paths
+agn_filenames = [f"/home/kunal/elasticc/fits/ELASTICC_TRAIN_AGN/ELASTICC_TRAIN_NONIaMODEL0-{str(i).zfill(4)}_HEAD.FITS.gz" for i in range(1, 2)]
+tde_filenames = [f"/home/kunal/elasticc/fits/ELASTICC_TRAIN_TDE/ELASTICC_TRAIN_NONIaMODEL0-{str(i).zfill(4)}_HEAD.FITS.gz" for i in range(1, 2)]
+sne_filenames = [f"/home/kunal/elasticc/fits/ELASTICC_TRAIN_SNIa-SALT2/ELASTICC_TRAIN_NONIaMODEL0-{str(i).zfill(4)}_HEAD.FITS.gz" for i in range(1, 2)]
+
+# Merging lists
+all_filenames = agn_filenames + tde_filenames + sne_filenames
+object_types = ['AGN'] * len(agn_filenames) + ['TDE'] * len(tde_filenames) + ['SNE'] * len(sne_filenames)
+
+# Initialize lists to hold calculated values
+all_mean_colors_pre_peak = []
+all_mean_colors_post_peak = []
+all_mean_colors_pre_peak_ri = []
+all_mean_colors_post_peak_ri = []
+all_color_slopes = []
+all_object_types = []
+all_color_slope_std_errs = []
+
+# Main loop to calculate mean colors and slopes
+for filename, object_type in tqdm(zip(all_filenames, object_types), total=len(all_filenames)):
+    table, head = read_elasticc_file(filename)  # Assuming this function is defined elsewhere
+    snids, shead_list, sub_list = get_snid_head_sub(table, head)  # Assuming this function is defined elsewhere
+
+    # Initialize lists to hold calculated values for each file
+    mean_colors_pre_peak = []
+    mean_colors_post_peak = []
+    color_slopes = []
+    color_slope_std_errs = []
+    mean_colors_pre_peak_ri = []
+    mean_colors_post_peak_ri = []
+
+    # Inner loop for each supernova ID
+    for snid, shead, sub in zip(snids, shead_list, sub_list):
+        try:
+            # Calculate mean colors and slope (g-r)
+            mean_color_pre_peak, mean_color_post_peak, color_slope, slope_std_err = calc_mean_colors_and_slope(sub, shead, 'g', 'r')
+            
+            # Calculate mean colors (r-i)
+            mean_color_pre_peak_ri, mean_color_post_peak_ri, _, _ = calc_mean_colors_and_slope(sub, shead, 'r', 'i')
+
+            # Append to lists if none of the values are None
+            if all(val is not None for val in [mean_color_pre_peak, mean_color_post_peak, color_slope]):
+                mean_colors_pre_peak.append(mean_color_pre_peak)
+                mean_colors_post_peak.append(mean_color_post_peak)
+                color_slopes.append(color_slope)
+                color_slope_std_errs.append(slope_std_err)
+                mean_colors_pre_peak_ri.append(mean_color_pre_peak_ri)
+                mean_colors_post_peak_ri.append(mean_color_post_peak_ri)
+        except ValueError as e:
+            print(f"Skipping SNID {snid} due to error: {e}")
+
+    # Extend global lists with values calculated from this file
+    all_mean_colors_pre_peak.extend(mean_colors_pre_peak)
+    all_mean_colors_post_peak.extend(mean_colors_post_peak)
+    all_color_slopes.extend(color_slopes)
+    all_color_slope_std_errs.extend(color_slope_std_errs)
+    all_mean_colors_pre_peak_ri.extend(mean_colors_pre_peak_ri)
+    all_mean_colors_post_peak_ri.extend(mean_colors_post_peak_ri)
+    all_object_types.extend([object_type] * len(mean_colors_pre_peak))
+
+    total_items = len(snids)
+    processed_items = len(mean_colors_pre_peak)
+    ratio = processed_items / total_items if total_items != 0 else 0
+    percentage = ratio * 100
+    print(f"{object_type}: {processed_items} processed out of {total_items} total (Ratio: {ratio}, Percentage: {percentage}%)")
+    
+    
+#color-color diagrams
+fig4, (ax6, ax7) = plt.subplots(1, 2, figsize=(20, 6))
+
+colors = {'TDE': 'blue', 'SNE': 'red', 'AGN': 'green'}
+
+# Loop to plot different types of objects with different colors
+for object_type in ['TDE', 'SNE', 'AGN']:
+    mask = np.array(all_object_types) == object_type
+
+    # pre-peak g-r vs r-i
+    ax6.scatter(np.array(all_mean_colors_pre_peak)[mask], np.array(all_mean_colors_pre_peak_ri)[mask], label=object_type, alpha=0.5, color=colors[object_type])
+
+    # post-peak g-r vs r-i
+    ax7.scatter(np.array(all_mean_colors_post_peak)[mask], np.array(all_mean_colors_post_peak_ri)[mask], label=object_type, alpha=0.5, color=colors[object_type])
+
+ax6.set_xlabel("Mean Pre-peak g-r Color")
+ax6.set_ylabel("Mean Pre-peak r-i Color")
+ax6.set_xlim(-1.5, 3)
+ax6.set_ylim(-1.5, 1.5)
+ax6.legend()
+
+ax7.set_xlabel("Mean Post-peak g-r Color")
+ax7.set_ylabel("Mean Post-peak r-i Color")
+ax7.set_xlim(-1.5, 3)
+ax7.set_ylim(-1.5, 1.5)
+ax7.legend()
+
+plt.show()
+ 
+#Plots of mean g-r vs rate of color change
+
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 6))
+colors = {'TDE': 'blue', 'SNE': 'red', 'AGN': 'green'}
+
+for object_type in ['TDE', 'SNE', 'AGN']:
+    mask = np.array(all_object_types) == object_type
+    ax1.scatter(np.array(all_mean_colors_pre_peak)[mask], np.array(all_color_slopes)[mask], label=object_type, alpha=0.5, color=colors[object_type])
+    ax2.scatter(np.array(all_mean_colors_post_peak)[mask], np.array(all_color_slopes)[mask], label=object_type, alpha=0.5, color=colors[object_type])
+
+ax1.set_xlabel("Mean pre-peak g-r Color")
+ax1.set_ylabel("Rate of Color Change (1/day)")
+ax1.set_xlim(-1, 1)
+ax1.set_ylim(-0.02, 0.03)
+ax1.legend()
+
+ax2.set_xlabel("Mean post-peak g-r Color")
+ax2.set_ylabel("Rate of Color Change (1/day)")
+ax2.set_xlim(-1, 1)
+ax2.set_ylim(-0.02, 0.03)
+ax2.legend()
+
+plt.show()
+
+
+
+# Histograms
+fig2, (ax3, ax4) = plt.subplots(1, 2, figsize=(14, 6))
+
+bin_width = 0.1
+bin_edges = np.arange(-2, 2 + bin_width, bin_width)
+bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+
+width = bin_width / 3
+for object_type, color, shift in zip(['AGN', 'TDE', 'SNE'], ['green', 'blue', 'red'], [-width, 0, width]):
+    mask = np.array(all_object_types) == object_type
+    pre_peak_colors = np.array(all_mean_colors_pre_peak)[mask]
+    post_peak_colors = np.array(all_mean_colors_post_peak)[mask]
+
+    hist_pre_peak, _ = np.histogram(pre_peak_colors, bins=bin_edges)
+    hist_post_peak, _ = np.histogram(post_peak_colors, bins=bin_edges)
+
+    ax3.bar(bin_centers + shift, hist_pre_peak, width=width, color=color, alpha=0.5, label=object_type, edgecolor='k', linewidth=0.5)
+    ax4.bar(bin_centers + shift, hist_post_peak, width=width, color=color, alpha=0.5, label=object_type, edgecolor='k', linewidth=0.5)
+
+ax3.set_xlabel("Mean Pre-Peak g-r Color")
+ax3.set_ylabel("Number of Events")
+ax3.legend()
+ax3.set_yscale('log')
+
+ax4.set_xlabel("Mean Post-Peak g-r Color")
+ax4.set_ylabel("Number of Events")
+ax4.legend()
+ax4.set_yscale('log')
+
+fig3, ax5 = plt.subplots(1, 1, figsize=(7, 6))
+
+bin_edges_color_slope = np.arange(-0.15, 0.15 + 0.005, 0.005)
+
+for object_type, color in zip(['AGN', 'TDE', 'SNE'], ['green', 'blue', 'red']):
+    mask = np.array(all_object_types) == object_type
+    color_slopes = np.array(all_color_slopes)[mask]
+    ax5.hist(color_slopes, alpha=0.5, color=color, label=object_type, bins=bin_edges_color_slope, edgecolor='k', linewidth=0.5)
+
+ax5.set_xlabel("Rate of Color Change (per day)")
+ax5.set_ylabel("Number of Events")
+ax5.set_yscale('log')
+ax5.legend()
+
+
+plt.tight_layout()
+plt.show()
+
+
+end_time = time.time()
+print(f"Elapsed time: {end_time - start_time} seconds")
+
